@@ -1,0 +1,124 @@
+#module
+#include "kernel32.as"
+#deffunc boxf_h int hx_1 ,int hy_1 ,int hx_2 ,int hy_2 //中抜きのboxf描画
+	Color_h = ginfo_r,ginfo_g,ginfo_b
+	color 60,60,60: boxf hx_1,hy_1,hx_2,hy_2//下地
+	color Color_h(0),Color_h(1),Color_h(2) : boxf hx_1+1,hy_1+1,hx_2-1,hy_2-1//ボタンの色で上塗り
+	return
+#defcfunc CalWeek int Year, int Month //曜日取得
+	sdim data,32 : wpoke data,0,Year : wpoke data,2,Month : wpoke data,6,1
+	SystemTimeToFileTime varptr(data),varptr(data) : FileTimeToSystemTime varptr(data),varptr(data)
+	return peek(data,4)
+#defcfunc CalLeap int Year //閏年チェック
+	if Year\4 != 0 : return 0
+	if Year\400 = 0 : return 1
+	if Year\100 = 0 : return 0
+	return 1
+#undef keybd_event // 定義取消
+
+//#uselib "KERNEL32.dll"
+#func  CloseHandle  "CloseHandle"  int
+#cfunc CreateMutex  "CreateMutexA" int, int, sptr
+#cfunc GetLastError "GetLastError"
+#define ERROR_ALREADY_EXISTS    183
+; ミューテックスオブジェクトの名前の定義
+; (アプリケーション固有の名前にする必要があります)
+#define MUTEX_NAME  "HSP_WinAPI_Test_Mutex"
+; このアプリケーションがすでに起動されているかどうかを取得する関数
+#defcfunc AlreadyAppRunning
+if (hMutex == 0) {
+    ; 名前付きミューテックスオブジェクトの作成
+    hMutex = CreateMutex(0, 0, MUTEX_NAME)
+
+    ; オブジェクトがすでに作成されていたかどうかの判別
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        ; すでに同じ名前のオブジェクトが存在する
+        alreadyRunning = 1
+    } else {
+        ; オブジェクトが新しく作成された
+        alreadyRunning = 0
+    }
+	}
+	return alreadyRunning
+	; クリーンアップ処理（終了時に自動実行）
+	#deffunc CleanupAppRunChecker onexit
+	if (hMutex != 0) {
+    ; ミューテックスオブジェクトハンドルのクローズ
+    CloseHandle hMutex
+    hMutex = 0
+	}
+	return
+
+#global
+
+	Year = gettime(0) : Month = gettime(1) //年と月を初期化
+	Day = "S","M","T","W","T","F","S" //曜日 //七曜
+	Data = 31,28,31,30,31,30,31,31,30,31,30,31 //各月が何日まであるか
+	Px = 5 : Py = 100 //カレンダーの左上座標
+	Osize = 60 ,20 //カレンダーの曜日表示欄のサイズ
+	Csize = 60 ,60 //カレンダーのマス目のサイズ
+	buffer 1:picload "btnmigi.png"
+	buffer 2:picload "btnhidari.png"
+	
+bgscr  0,433,450,,(ginfo_dispx-433)/2,(ginfo_dispy-450)/2
+
+*cradr //メインの処理ここから
+	redraw 0
+	objsize 30,30
+	pos 3,70
+	objimage 2, 0,0, 0,30, 30,0	; ボタン画像の指定
+	button gosub "",*cradr1
+	objsize 30,30
+	pos 395,70
+	objimage 1, 0,0, 0,30, 30,0	; ボタン画像の指定
+	button gosub "",*cradr2
+	onclick gosub *move
+	color 0,0,0: boxf
+	color 200,200,200: font "Arial",30//月表示のフォント
+	pos 150,Py-30:mes strf("%4d/%2d",Year,Month) //[○○○○年/○○月]
+	font "Arial",16,1
+	
+	repeat 7 //マス目、曜日を表示
+	color 0,0,0 : boxf_h Px+Osize(0)*cnt,Py,Px+Osize(0)*(cnt+1),Py+Osize(1)//曜日欄の色
+	color 200,200,200: pos Px+Osize(0)*cnt + Osize(0)/2-8,Py+3 : mes Day(cnt)
+	loop
+	SPos = CalWeek(Year,Month),0 : sid = 0 : LeapFlag = 0 //曜日取得や使用する変数の初期化
+	if CalLeap(Year) = 1 and Month = 2 : LeapFlag = 1 //閏年時は例外
+	repeat 6 : cn = cnt
+	repeat 7 : color 0,0,0//平日の色
+	if cn <= 4{
+	if cnt = 0 : color 90,0,0//日曜日の色
+	if cnt = 6 : color 0,0,90//土曜日の色
+		boxf_h Px+Csize(0)*cnt,Py+Osize(1)+cn*Csize(1),Px+Csize(0)*(cnt+1),Py+Osize(1)+Csize(1)+cn*Csize(1) //マス目描画
+	}
+	if cnt >= Spos or cn != 0 and sid < Data(Month-1)+LeapFlag{ //(cn,cnt)のマス目に日にちを表示するかチェック
+		color 200,200,200: sid++ //[sid]表示する日にち
+	if cn != 5 : pos Px+Csize(0)*cnt+Csize(0)/2-8,Py+Osize(1)+cn*Csize(1)+3 : mes strf("%2d",sid) //日にち表示
+	if cn = 5 : pos Px+Csize(0)*cnt+Csize(0)/2-8,Py+Osize(1)+4*Csize(1)+3 : mes strf("  /%2d",sid) //日にち表示(６列目)
+	}
+	loop
+	loop
+	redraw 1 //描画	
+	; アプリケーションの実行チェック
+	if (AlreadyAppRunning()) {
+    dialog "すでに起動されています。終了しますか？",3
+	}
+	if stat=6:end
+	if stat=7:stop
+	
+	repeat
+		getkey esc,27
+		if esc : end
+		if stat=1 | stat=2 : break
+		wait 10
+	loop
+	goto *cradr
+*cradr1
+	Month-- : if Month == 0 : Month = 12 : Year--
+	return 1
+*cradr2
+	Month++ : if Month == 13 : Month = 1 : Year++
+	return 2
+*move
+	if wparam=1 : sendmsg hwnd,$00A1,2,0
+	return
